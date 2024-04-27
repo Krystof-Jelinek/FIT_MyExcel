@@ -73,7 +73,7 @@ CValue operator + (const CValue & first, const CValue & second){
     return std::to_string(std::get<double> ( first )) + std::get<std::string> ( second );
   }
   if(first.index() == 2 && second.index() == 1){
-    return std::to_string(std::get<double> ( second )) + std::get<std::string> ( first );
+    return std::get<std::string> ( first ) + std::to_string(std::get<double> ( second ));
   }
   throw std::logic_error("something went wrong in + operator for CValue");
 } 
@@ -221,16 +221,6 @@ CValue my_neg(const CValue & first){
 
 class CCell;
 
-class CPos;
-
-class CNode;
-
-class CAst{
-  private:
-    CNode * root;
-    std::map<CPos, CCell> * table_ptr;
-};
-
 class CPos
 {
   public:
@@ -262,46 +252,40 @@ class CPos
     int second_cord;
 };
 
-bool operator == (const CPos & first, const CPos & second){
-  return ((first.first_cord == second.first_cord) && (first.second_cord == second.second_cord));
-}
-
-bool operator != (const CPos & first, const CPos & second){
-  return !(first == second);
-}
-
-bool operator < (const CPos & first, const CPos & second){
-  if(first.second_cord != second.second_cord){
-    return first.second_cord < second.second_cord;
-  }
-  return first.first_cord < second.first_cord;
-}
-
-class CCell{
-  private:
-    CPos position;
-    CValue value;
-    CAst eval_tree;
-    bool already_parsed;
-    std::map<CPos, CCell> * table_ptr;
-
-  public:
-    CValue getValue() const{
-      return value;
-    }
-    void setValue(const std::string & input);
-    
-};
-
 //abstract class from which all operations will derive
 class CNode{
   public:
     virtual CValue evaluate() = 0;
 };
 
-class CMonostate : public CNode{
+class CAst{
+  public:  
+    std::shared_ptr<CNode> root;
+  private:
+    std::shared_ptr<std::map<CPos, CCell>> table_ptr;
+};
+
+class CCell{
+  private:
+    CPos position;
+    std::string expresion;
+    CAst eval_tree;
+    bool already_parsed;
+    std::shared_ptr<std::map<CPos, CCell>> table_ptr;
   public:
-  CMonostate(CValue in){
+  CValue getValue();
+  bool setValue(const std::string & input);
+};
+
+class CValNode : public CNode{
+  public:
+  CValNode(CValue in){
+    value = in;
+  }
+  CValNode(double in){
+    value = in;
+  }
+  CValNode(std::string in){
     value = in;
   }
   
@@ -312,32 +296,7 @@ class CMonostate : public CNode{
     CValue value;
 };
 
-class CNumber : public CNode{
-  public:
-  CNumber(double in){
-    value = in;
-  }
-  
-  virtual CValue evaluate() override{
-    return CValue(value);
-  }
-  private:
-    double value;
-};
-
-class CString : public CNode{
-  public:
-  CString(std::string in){
-    value = in;
-  }
-  
-  virtual CValue evaluate() override{
-    return CValue(value);
-  }
-  private:
-    std::string value;
-};
-
+//TODO this will need changes on how it inputs reference
 class CReference : public CNode{
   public:
   CReference(std::string in_pos){
@@ -349,7 +308,7 @@ class CReference : public CNode{
   }
   private:
     CPos position;
-    std::map<CPos, CCell> * table_ptr;
+    std::shared_ptr<std::map<CPos, CCell>> table_ptr;
 };
 
 class CPlus : public CNode{
@@ -545,50 +504,367 @@ class CGe : public CNode{
 class CMyBuilder : public CExprBuilder{
   public:
     virtual void  opAdd(){
-      std::shared_ptr<CNode> first = my_stack.top();
-      my_stack.pop();
-      std::shared_ptr<CNode> second = my_stack.top();
-      my_stack.pop();
-      CValue tmp = CPlus(first,second).evaluate();
-      storeCValue(tmp);
-    }
-    virtual void  opSub() = 0;
-    virtual void  opMul() = 0;
-    virtual void  opDiv() = 0;
-    virtual void  opPow() = 0;
-    virtual void  opNeg() = 0;
-    virtual void  opEq() = 0;
-    virtual void  opNe() = 0;
-    virtual void  opLt() = 0;
-    virtual void  opLe() = 0;
-    virtual void  opGt() = 0;
-    virtual void  opGe() = 0;
-    virtual void  valNumber(double val) = 0;
-    virtual void  valString(std::string val) = 0;
-    virtual void  valReference(std::string val) = 0;
-    virtual void  valRange(std::string val) = 0;
-    virtual void  funcCall(std::string fnName, int paramCount) = 0;
+      //first i take out the SECOND argument of the function cuz thats how zasobnik works
+      //! this part computes the result
+      {
+        std::shared_ptr<CNode> second = my_stack.top();
+        my_stack.pop();
+        std::shared_ptr<CNode> first = my_stack.top();
+        my_stack.pop();
+        CPlus in(first,second);
+        CValue tmp = in.evaluate();
+        storeCValue(tmp);
+      }
 
-  private:
-    void storeCValue(CValue & in){
-      if(in.index() == 0){
-        CMonostate store(in);
-        my_stack.push(std::make_shared<CMonostate>(store));
+      //! this part builds the three
+      {
+        std::shared_ptr<CNode> second = build_stack.top();
+        build_stack.pop();
+        std::shared_ptr<CNode> first = build_stack.top();
+        build_stack.pop();
+        CPlus in(first,second);
+        std::shared_ptr<CNode> to_be_pushed = std::make_shared<CPlus>(in);
+        build_stack.push(to_be_pushed);
       }
-      if(in.index() == 1){
-        CNumber store(std::get<double>(in));
-        my_stack.push(std::make_shared<CNumber>(store));
+    }
+    virtual void  opSub(){
+      //first i take out the SECOND argument of the function cuz thats how zasobnik works
+      //! this part computes the result
+      {
+        std::shared_ptr<CNode> second = my_stack.top();
+        my_stack.pop();
+        std::shared_ptr<CNode> first = my_stack.top();
+        my_stack.pop();
+        CMinus in(first,second);
+        CValue tmp = in.evaluate();
+        storeCValue(tmp);
       }
-      if(in.index() == 2){
-        CString store(std::get<std::string>(in));
-        my_stack.push(std::make_shared<CString>(store));
+
+      //! this part builds the three
+      {
+        std::shared_ptr<CNode> second = build_stack.top();
+        build_stack.pop();
+        std::shared_ptr<CNode> first = build_stack.top();
+        build_stack.pop();
+        CMinus in(first,second);
+        std::shared_ptr<CNode> to_be_pushed = std::make_shared<CMinus>(in);
+        build_stack.push(to_be_pushed);
+      }
+    }
+    virtual void  opMul() {
+      //first i take out the SECOND argument of the function cuz thats how zasobnik works
+      //! this part computes the result
+      {
+        std::shared_ptr<CNode> second = my_stack.top();
+        my_stack.pop();
+        std::shared_ptr<CNode> first = my_stack.top();
+        my_stack.pop();
+        CMul in(first,second);
+        CValue tmp = in.evaluate();
+        storeCValue(tmp);
+      }
+
+      //! this part builds the three
+      {
+        std::shared_ptr<CNode> second = build_stack.top();
+        build_stack.pop();
+        std::shared_ptr<CNode> first = build_stack.top();
+        build_stack.pop();
+        CMul in(first,second);
+        std::shared_ptr<CNode> to_be_pushed = std::make_shared<CMul>(in);
+        build_stack.push(to_be_pushed);
+      }
+    }
+    virtual void  opDiv() {
+      //first i take out the SECOND argument of the function cuz thats how zasobnik works
+      //! this part computes the result
+      {
+        std::shared_ptr<CNode> second = my_stack.top();
+        my_stack.pop();
+        std::shared_ptr<CNode> first = my_stack.top();
+        my_stack.pop();
+        CDiv in(first,second);
+        CValue tmp = in.evaluate();
+        storeCValue(tmp);
+      }
+
+      //! this part builds the three
+      {
+        std::shared_ptr<CNode> second = build_stack.top();
+        build_stack.pop();
+        std::shared_ptr<CNode> first = build_stack.top();
+        build_stack.pop();
+        CDiv in(first,second);
+        std::shared_ptr<CNode> to_be_pushed = std::make_shared<CDiv>(in);
+        build_stack.push(to_be_pushed);
+      }
+    }
+    virtual void  opPow() {
+      //first i take out the SECOND argument of the function cuz thats how zasobnik works
+      //! this part computes the result
+      {
+        std::shared_ptr<CNode> second = my_stack.top();
+        my_stack.pop();
+        std::shared_ptr<CNode> first = my_stack.top();
+        my_stack.pop();
+        CPow in(first,second);
+        CValue tmp = in.evaluate();
+        storeCValue(tmp);
+      }
+
+      //! this part builds the three
+      {
+        std::shared_ptr<CNode> second = build_stack.top();
+        build_stack.pop();
+        std::shared_ptr<CNode> first = build_stack.top();
+        build_stack.pop();
+        CPow in(first,second);
+        std::shared_ptr<CNode> to_be_pushed = std::make_shared<CPow>(in);
+        build_stack.push(to_be_pushed);
+      }
+    }
+    virtual void  opNeg() {
+      //first i take out the SECOND argument of the function cuz thats how zasobnik works
+      //! this part computes the result
+      {
+        std::shared_ptr<CNode> first = my_stack.top();
+        my_stack.pop();
+        CNeg in(first);
+        CValue tmp = in.evaluate();
+        storeCValue(tmp);
+      }
+
+      //! this part builds the three
+      {
+        std::shared_ptr<CNode> first = build_stack.top();
+        build_stack.pop();
+        CNeg in(first);
+        std::shared_ptr<CNode> to_be_pushed = std::make_shared<CNeg>(in);
+        build_stack.push(to_be_pushed);
+      }
+    }
+    virtual void  opEq() {
+      //first i take out the SECOND argument of the function cuz thats how zasobnik works
+      //! this part computes the result
+      {
+        std::shared_ptr<CNode> second = my_stack.top();
+        my_stack.pop();
+        std::shared_ptr<CNode> first = my_stack.top();
+        my_stack.pop();
+        CEq in(first,second);
+        CValue tmp = in.evaluate();
+        storeCValue(tmp);
+      }
+
+      //! this part builds the three
+      {
+        std::shared_ptr<CNode> second = build_stack.top();
+        build_stack.pop();
+        std::shared_ptr<CNode> first = build_stack.top();
+        build_stack.pop();
+        CEq in(first,second);
+        std::shared_ptr<CNode> to_be_pushed = std::make_shared<CEq>(in);
+        build_stack.push(to_be_pushed);
+      }
+    }
+    virtual void  opNe() {
+      //first i take out the SECOND argument of the function cuz thats how zasobnik works
+      //! this part computes the result
+      {
+        std::shared_ptr<CNode> second = my_stack.top();
+        my_stack.pop();
+        std::shared_ptr<CNode> first = my_stack.top();
+        my_stack.pop();
+        CNeq in(first,second);
+        CValue tmp = in.evaluate();
+        storeCValue(tmp);
+      }
+
+      //! this part builds the three
+      {
+        std::shared_ptr<CNode> second = build_stack.top();
+        build_stack.pop();
+        std::shared_ptr<CNode> first = build_stack.top();
+        build_stack.pop();
+        CNeq in(first,second);
+        std::shared_ptr<CNode> to_be_pushed = std::make_shared<CNeq>(in);
+        build_stack.push(to_be_pushed);
+      }
+    }
+    virtual void  opLt() {
+      //first i take out the SECOND argument of the function cuz thats how zasobnik works
+      //! this part computes the result
+      {
+        std::shared_ptr<CNode> second = my_stack.top();
+        my_stack.pop();
+        std::shared_ptr<CNode> first = my_stack.top();
+        my_stack.pop();
+        CLt in(first,second);
+        CValue tmp = in.evaluate();
+        storeCValue(tmp);
+      }
+
+      //! this part builds the three
+      {
+        std::shared_ptr<CNode> second = build_stack.top();
+        build_stack.pop();
+        std::shared_ptr<CNode> first = build_stack.top();
+        build_stack.pop();
+        CLt in(first,second);
+        std::shared_ptr<CNode> to_be_pushed = std::make_shared<CLt>(in);
+        build_stack.push(to_be_pushed);
+      }
+    }
+    virtual void  opLe() {
+      //first i take out the SECOND argument of the function cuz thats how zasobnik works
+      //! this part computes the result
+      {
+        std::shared_ptr<CNode> second = my_stack.top();
+        my_stack.pop();
+        std::shared_ptr<CNode> first = my_stack.top();
+        my_stack.pop();
+        CLe in(first,second);
+        CValue tmp = in.evaluate();
+        storeCValue(tmp);
+      }
+
+      //! this part builds the three
+      {
+        std::shared_ptr<CNode> second = build_stack.top();
+        build_stack.pop();
+        std::shared_ptr<CNode> first = build_stack.top();
+        build_stack.pop();
+        CLe in(first,second);
+        std::shared_ptr<CNode> to_be_pushed = std::make_shared<CLe>(in);
+        build_stack.push(to_be_pushed);
+      }
+    }
+    virtual void  opGt() {
+      //first i take out the SECOND argument of the function cuz thats how zasobnik works
+      //! this part computes the result
+      {
+        std::shared_ptr<CNode> second = my_stack.top();
+        my_stack.pop();
+        std::shared_ptr<CNode> first = my_stack.top();
+        my_stack.pop();
+        CGt in(first,second);
+        CValue tmp = in.evaluate();
+        storeCValue(tmp);
+      }
+
+      //! this part builds the three
+      {
+        std::shared_ptr<CNode> second = build_stack.top();
+        build_stack.pop();
+        std::shared_ptr<CNode> first = build_stack.top();
+        build_stack.pop();
+        CGt in(first,second);
+        std::shared_ptr<CNode> to_be_pushed = std::make_shared<CGt>(in);
+        build_stack.push(to_be_pushed);
+      }
+    }
+    virtual void  opGe() {
+      //first i take out the SECOND argument of the function cuz thats how zasobnik works
+      //! this part computes the result
+      {
+        std::shared_ptr<CNode> second = my_stack.top();
+        my_stack.pop();
+        std::shared_ptr<CNode> first = my_stack.top();
+        my_stack.pop();
+        CGe in(first,second);
+        CValue tmp = in.evaluate();
+        storeCValue(tmp);
+      }
+
+      //! this part builds the three
+      {
+        std::shared_ptr<CNode> second = build_stack.top();
+        build_stack.pop();
+        std::shared_ptr<CNode> first = build_stack.top();
+        build_stack.pop();
+        CGe in(first,second);
+        std::shared_ptr<CNode> to_be_pushed = std::make_shared<CGe>(in);
+        build_stack.push(to_be_pushed);
       }
     }
     
+    virtual void  valNumber(double val) {
+      CValNode tmp(val);
+      std::shared_ptr<CNode> in = std::make_shared<CValNode>(tmp);
+      my_stack.push(in);
+      build_stack.push(in);
+
+    }
+    
+    virtual void  valString(std::string val) {
+      CValNode tmp(val);
+      std::shared_ptr<CNode> in = std::make_shared<CValNode>(tmp);
+      my_stack.push(in);
+      build_stack.push(in);
+    }
+    
+    virtual void  valReference(std::string val) {}
+    virtual void  valRange(std::string val) {}
+    virtual void  funcCall(std::string fnName, int paramCount) {}
+
+    CValue getResult(){
+      CValue tmp = my_stack.top()->evaluate();
+      tree.root = build_stack.top();
+      return tmp;
+    }
+
+    CAst getTree(){
+      return tree;
+    }
+
+  private:
+    
     CAst tree;
-    std::map<CPos, CCell> * table_ptr;
+    std::shared_ptr<std::map<CPos, CCell>> table_ptr;
     std::stack<std::shared_ptr<CNode>> my_stack;
+    std::stack<std::shared_ptr<CNode>> build_stack;
+
+    void storeCValue(const CValue & in){
+      CValNode tmp(in);
+      my_stack.push(std::make_shared<CValNode>(tmp));
+    }
 };
+
+bool operator == (const CPos & first, const CPos & second){
+  return ((first.first_cord == second.first_cord) && (first.second_cord == second.second_cord));
+}
+
+bool operator != (const CPos & first, const CPos & second){
+  return !(first == second);
+}
+
+bool operator < (const CPos & first, const CPos & second){
+  if(first.second_cord != second.second_cord){
+    return first.second_cord < second.second_cord;
+  }
+  return first.first_cord < second.first_cord;
+}
+
+
+
+CValue CCell::getValue(){
+  if(already_parsed == true){
+    return eval_tree.root->evaluate();
+  }
+  CMyBuilder my_builder;
+  parseExpression(expresion,my_builder);
+  already_parsed = true;
+  eval_tree = my_builder.getTree();
+  return my_builder.getResult();
+}
+bool CCell::setValue(const std::string & input){
+  //TODO osetrit ze je spravny vstup
+  expresion = input;
+  already_parsed = false;
+  return true;
+}
+    
+
 
 class CSpreadsheet
 {
@@ -598,15 +874,21 @@ class CSpreadsheet
       return SPREADSHEET_CYCLIC_DEPS | SPREADSHEET_FUNCTIONS | SPREADSHEET_FILE_IO | SPREADSHEET_SPEED | SPREADSHEET_PARSER;
     }
 
-    CSpreadsheet();
+    CSpreadsheet(){
+      table = std::make_shared<std::map<CPos, CCell>>();
+    }
     bool load(std::istream & is);
     bool save(std::ostream & os) const;
-    bool setCell(CPos pos, std::string contents);
-    CValue getValue(CPos pos);
+    bool setCell(CPos pos, std::string contents){
+      return table->at(pos).setValue(contents);
+    }
+    CValue getValue(CPos pos){
+      return table->at(pos).getValue();
+    }
     void copyRect(CPos dst, CPos src, int w = 1, int h = 1);
   
   private:
-    std::map<CPos, CCell> table;
+    std::shared_ptr<std::map<CPos, CCell>> table;
 };
 
 #ifndef __PROGTEST__
@@ -667,13 +949,10 @@ int main ()
     assert(tmp.first_cord == "AA" && tmp.second_cord == 158);
   }
 
-  CString a("A");
-  CNumber b(20);
-  std::shared_ptr<CNode> p= std::make_shared<CString>(a);
-  std::shared_ptr<CNode> q= std::make_shared<CNumber>(b);
-  CPlus res(p,q);
-  CValue i = res.evaluate();
-  std::cout << i << std::endl;
+  CSpreadsheet tmp;
+  CPos pos("A0");
+  tmp.setCell(pos, "=\"COE\"+\"25\"");
+  std::cout << tmp.getValue(pos) << std::endl;
 
   
   /*
