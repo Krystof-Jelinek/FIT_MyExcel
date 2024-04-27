@@ -250,31 +250,37 @@ class CPos
     }
     std::string first_cord;
     int second_cord;
+    CPos & operator =(const CPos & in){
+      this->first_cord = in.first_cord;
+      this->second_cord = in.second_cord;
+      return *this;
+    }
 };
 
 //abstract class from which all operations will derive
 class CNode{
   public:
     virtual CValue evaluate() = 0;
+    virtual ~CNode(){}
 };
 
 class CAst{
   public:  
     std::shared_ptr<CNode> root;
-  private:
-    std::shared_ptr<std::map<CPos, CCell>> table_ptr;
 };
 
 class CCell{
   private:
-    CPos position;
     std::string expresion;
     CAst eval_tree;
     bool already_parsed;
-    std::shared_ptr<std::map<CPos, CCell>> table_ptr;
   public:
-  CValue getValue();
-  bool setValue(const std::string & input);
+    CPos position;
+    std::shared_ptr<std::map<CPos, CCell>> table_ptr;
+    CCell(std::shared_ptr<std::map<CPos, CCell>> in);
+    CValue getValue();
+    bool setValue(const std::string & input);
+    CCell& operator=(const CCell& other);
 };
 
 class CValNode : public CNode{
@@ -288,10 +294,12 @@ class CValNode : public CNode{
   CValNode(std::string in){
     value = in;
   }
+  virtual ~CValNode() override{}
   
   virtual CValue evaluate() override{
     return value;
   }
+
   private:
     CValue value;
 };
@@ -299,13 +307,20 @@ class CValNode : public CNode{
 //TODO this will need changes on how it inputs reference
 class CReference : public CNode{
   public:
-  CReference(std::string in_pos){
-    position = CPos(in_pos);
+  CReference(const std::string & in_pos, std::shared_ptr<std::map<CPos, CCell>> in_ptr){
+    std::string str = in_pos;
+    str.erase(std::remove_if(str.begin(), str.end(), [](char c) {
+        return c == '$';
+    }), str.end());
+    
+    position = CPos(str);
+    table_ptr = in_ptr;
   }
   
   virtual CValue evaluate() override{
     return table_ptr->at(position).getValue();
   }
+
   private:
     CPos position;
     std::shared_ptr<std::map<CPos, CCell>> table_ptr;
@@ -803,7 +818,13 @@ class CMyBuilder : public CExprBuilder{
       build_stack.push(in);
     }
     
-    virtual void  valReference(std::string val) {}
+    virtual void  valReference(std::string val) {
+        CReference tmp(val, table_ptr);
+        std::shared_ptr<CNode> in = std::make_shared<CReference>(tmp);
+        my_stack.push(in);
+        build_stack.push(in);
+    }
+
     virtual void  valRange(std::string val) {}
     virtual void  funcCall(std::string fnName, int paramCount) {}
 
@@ -814,7 +835,12 @@ class CMyBuilder : public CExprBuilder{
     }
 
     CAst getTree(){
-      return tree;
+        tree.root = build_stack.top();
+        return tree;
+    }
+
+    void setTablePtr(std::shared_ptr<std::map<CPos, CCell>> in){
+        table_ptr = in;
     }
 
   private:
@@ -845,26 +871,41 @@ bool operator < (const CPos & first, const CPos & second){
   return first.first_cord < second.first_cord;
 }
 
-
-
 CValue CCell::getValue(){
-  if(already_parsed == true){
+  if(already_parsed){
     return eval_tree.root->evaluate();
   }
   CMyBuilder my_builder;
+  my_builder.setTablePtr(table_ptr);
   parseExpression(expresion,my_builder);
   already_parsed = true;
   eval_tree = my_builder.getTree();
   return my_builder.getResult();
 }
+
 bool CCell::setValue(const std::string & input){
   //TODO osetrit ze je spravny vstup
   expresion = input;
   already_parsed = false;
   return true;
 }
-    
 
+CCell::CCell(std::shared_ptr<std::map<CPos, CCell>> in){
+    table_ptr = in;
+}
+
+CCell& CCell::operator=(const CCell& other)
+    {
+        if (this != &other) // Check for self-assignment
+        {
+          this->position = other.position;
+          this->expresion = other.expresion;
+          this->eval_tree = CAst{};
+          this->already_parsed = false;
+          this->table_ptr = nullptr;
+        }
+        return *this;
+    }
 
 class CSpreadsheet
 {
@@ -877,19 +918,58 @@ class CSpreadsheet
     CSpreadsheet(){
       table = std::make_shared<std::map<CPos, CCell>>();
     }
+    ~CSpreadsheet(){
+      table->clear();
+    }
+
+    CSpreadsheet& operator=(const CSpreadsheet& other)
+    {
+        if (this != &other) // Check for self-assignment
+        {
+            table = std::make_shared<std::map<CPos, CCell>>();
+            for(auto itr = other.table->begin(); itr != other.table->end(); itr++){
+              CCell tmp(nullptr);
+              tmp = itr->second;
+              tmp.table_ptr = table;
+              table->insert({tmp.position,tmp});
+            }
+        }
+        return *this;
+    }
+
     bool load(std::istream & is);
     bool save(std::ostream & os) const;
     bool setCell(CPos pos, std::string contents){
-      return table->at(pos).setValue(contents);
+      //TODO nejaka kontrola jestli contents je validni
+      if(table->find(pos) != table->end()){
+          return table->at(pos).setValue(contents);
+      }
+      else{
+          bool res;
+          CCell tmp(table);
+          res = tmp.setValue(contents);
+          tmp.position = pos;
+          if(!res){
+              return false;
+          }
+          table->insert({pos, tmp});
+          return true;
+      }
     }
     CValue getValue(CPos pos){
-      return table->at(pos).getValue();
+        if(table->find(pos) != table->end()){
+            return table->at(pos).getValue();
+        }
+        CValue tmp;
+        return tmp;
     }
     void copyRect(CPos dst, CPos src, int w = 1, int h = 1);
   
   private:
     std::shared_ptr<std::map<CPos, CCell>> table;
 };
+
+
 
 #ifndef __PROGTEST__
 
@@ -953,9 +1033,8 @@ int main ()
   CPos pos("A0");
   tmp.setCell(pos, "=\"COE\"+\"25\"");
   std::cout << tmp.getValue(pos) << std::endl;
+  std::cout << tmp.getValue(pos) << std::endl;
 
-  
-  /*
   CSpreadsheet x0, x1;
   std::ostringstream oss;
   std::istringstream iss;
@@ -976,6 +1055,8 @@ int main ()
   assert ( valueMatch ( x0 . getValue ( CPos ( "A7" ) ), CValue ( "quoted string, quotes must be doubled: \". Moreover, backslashes are needed for C++." ) ) );
   assert ( valueMatch ( x0 . getValue ( CPos ( "A8" ) ), CValue() ) );
   assert ( valueMatch ( x0 . getValue ( CPos ( "AAAA9999" ) ), CValue() ) );
+  assert ( x0 . setCell ( CPos ( "A8" ), "=$A$1 + 10" ) );
+  assert ( valueMatch ( x0 . getValue ( CPos ( "A8" ) ), CValue ( 20.0 ) ) );
   assert ( x0 . setCell ( CPos ( "B1" ), "=A1+A2*A3" ) );
   assert ( x0 . setCell ( CPos ( "B2" ), "= -A1 ^ 2 - A2 / 2   " ) );
   assert ( x0 . setCell ( CPos ( "B3" ), "= 2 ^ $A$1" ) );
@@ -996,6 +1077,9 @@ int main ()
   assert ( valueMatch ( x0 . getValue ( CPos ( "B5" ) ), CValue ( 5625.0 ) ) );
   assert ( valueMatch ( x0 . getValue ( CPos ( "B6" ) ), CValue ( 11250.0 ) ) );
   x1 = x0;
+  assert ( valueMatch ( x0 . getValue ( CPos ( "B1" ) ), CValue ( 627.0 ) ) );
+  std::cout << x1 . getValue ( CPos ( "B1" ) ) << std::endl;
+  assert ( valueMatch ( x1 . getValue ( CPos ( "B1" ) ), CValue ( 627.0 ) ) );
   assert ( x0 . setCell ( CPos ( "A2" ), "100" ) );
   assert ( x1 . setCell ( CPos ( "A2" ), "=A3+A5+A4" ) );
   assert ( valueMatch ( x0 . getValue ( CPos ( "B1" ) ), CValue ( 3012.0 ) ) );
@@ -1004,12 +1088,14 @@ int main ()
   assert ( valueMatch ( x0 . getValue ( CPos ( "B4" ) ), CValue ( 12544.0 ) ) );
   assert ( valueMatch ( x0 . getValue ( CPos ( "B5" ) ), CValue ( 19458.0 ) ) );
   assert ( valueMatch ( x0 . getValue ( CPos ( "B6" ) ), CValue ( 38916.0 ) ) );
+  std::cout << x1 . getValue ( CPos ( "B1" ) ) << std::endl;
   assert ( valueMatch ( x1 . getValue ( CPos ( "B1" ) ), CValue ( 3612.0 ) ) );
   assert ( valueMatch ( x1 . getValue ( CPos ( "B2" ) ), CValue ( -204.0 ) ) );
   assert ( valueMatch ( x1 . getValue ( CPos ( "B3" ) ), CValue ( 4096.0 ) ) );
   assert ( valueMatch ( x1 . getValue ( CPos ( "B4" ) ), CValue ( 17424.0 ) ) );
   assert ( valueMatch ( x1 . getValue ( CPos ( "B5" ) ), CValue ( 24928.0 ) ) );
   assert ( valueMatch ( x1 . getValue ( CPos ( "B6" ) ), CValue ( 49856.0 ) ) );
+  /*
   oss . clear ();
   oss . str ( "" );
   assert ( x0 . save ( oss ) );
