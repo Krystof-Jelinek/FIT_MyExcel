@@ -248,13 +248,41 @@ class CPos
             throw std::invalid_argument("Invalid CPos format");
         }
     }
-    std::string first_cord;
-    int second_cord;
     CPos & operator =(const CPos & in){
       this->first_cord = in.first_cord;
       this->second_cord = in.second_cord;
       return *this;
     }
+
+    void incrementSecondCord(int i){
+      second_cord = second_cord + i;
+    }
+    void incrementFirstCord(int i){
+      // Convert first_cord to uppercase for consistency
+      std::string uppercaseFirstCord = first_cord;
+
+      // Iterate through each character of the string in reverse order
+      for(;i > 0;i--){
+        for (int j = uppercaseFirstCord.size() - 1; j >= 0; --j) {
+            // If the character is 'Z', change it to 'A' and continue iterating to the previous character
+            if (uppercaseFirstCord[j] == 'Z') {
+                uppercaseFirstCord[j] = 'A';
+            } else { // If the character is not 'Z', increment it and break the loop
+                ++uppercaseFirstCord[j];
+                break;
+            }
+            // If we reach the beginning of the string and it's 'Z', add 'A' at the beginning
+            if (j == 0 && uppercaseFirstCord[j] == 'A') {
+                uppercaseFirstCord = 'A' + uppercaseFirstCord;
+            }
+        }
+      }
+      first_cord = uppercaseFirstCord;
+    }
+  
+
+    std::string first_cord;
+    int second_cord;
 };
 
 //abstract class from which all operations will derive
@@ -965,7 +993,6 @@ class CSpreadsheet
       for(std::string & part : parts){
         size_t pos = part.find(";!pos!;");
         if (pos == std::string::npos){
-          std::cout << "TADY" << std::endl;
           return false;
         }
         std::string part_before = part.substr(0, pos);
@@ -980,10 +1007,8 @@ class CSpreadsheet
       return true;
     }
 
-
     bool save(std::ostream & os) const{
       for(auto itr = table->begin(); itr != table->end(); itr++){
-        //write the position
         os << itr->second.position.first_cord << itr->second.position.second_cord;
         os << ";!pos!;";
         os << itr->second.expresion;
@@ -1034,12 +1059,69 @@ class CSpreadsheet
         return tmp;
     }
     
-    void copyRect(CPos dst, CPos src, int w = 1, int h = 1);
+    void copyRect(CPos dst, CPos src, int w = 1, int h = 1){
+      std::vector<CCell> copied;
+      CPos src_original = src;
+      for(int i = w; i > 0; i--){
+        for(int j = h; j > 0; j--){
+          if(table->find(src) != table->end()){
+            copied.push_back(table->at(src));
+          }
+          src.incrementSecondCord(1);
+        }
+        src.second_cord = src_original.second_cord;
+        src.incrementFirstCord(1);
+      }
+    }
   
   private:
     std::shared_ptr<std::map<CPos, CCell>> table;
 };
 
+int countOccurrences(const std::string& str, char target) {
+    int count = 0;
+    for (char ch : str) {
+        if (ch == target) {
+            count++;
+        }
+    }
+    return count;
+}
+
+std::string getMovedPosition(std::string in_pos, int x_move, int y_move){
+  
+  int dolars = countOccurrences(in_pos, '$');
+  bool first_dolar = false;
+  bool second_dolar = false;
+  if(in_pos[0] == '$'){
+    first_dolar = true;
+  }
+  if(dolars == 2){
+    second_dolar = true;
+  }
+  if(dolars == 1 && (!first_dolar)){
+    second_dolar = true;
+  }
+
+  in_pos.erase(std::remove_if(in_pos.begin(), in_pos.end(), [](char c) {
+        return c == '$';
+    }), in_pos.end());
+
+  CPos tmp_pos(in_pos);
+  tmp_pos.incrementFirstCord(x_move);
+  tmp_pos.incrementSecondCord(y_move);
+  std::string res;
+  if(first_dolar){
+    res += '$';
+  }
+  res += tmp_pos.first_cord;
+  if(second_dolar){
+    res += '$';
+  }
+  res += std::to_string(tmp_pos.second_cord);
+
+  return res;
+}
 
 
 #ifndef __PROGTEST__
@@ -1099,6 +1181,51 @@ int main ()
     CPos tmp("aA158");
     assert(tmp.first_cord == "AA" && tmp.second_cord == 158);
   }
+  {
+    CPos tmp("aA158");
+    assert(tmp.first_cord == "AA" && tmp.second_cord == 158);
+    tmp.incrementFirstCord(1);
+    assert(tmp.first_cord == "AB" && tmp.second_cord == 158);
+    tmp.incrementSecondCord(10);
+    assert(tmp.first_cord == "AB" && tmp.second_cord == 168);
+  }
+  {
+    CPos tmp("Y1");
+    assert(tmp.first_cord == "Y" && tmp.second_cord == 1);
+    tmp.incrementFirstCord(1);
+    assert(tmp.first_cord == "Z" && tmp.second_cord == 1);
+    tmp.incrementFirstCord(1);
+    assert(tmp.first_cord == "AA" && tmp.second_cord == 1);
+    tmp.incrementFirstCord(25);
+    assert(tmp.first_cord == "AZ" && tmp.second_cord == 1);
+    tmp.incrementFirstCord(1);
+    assert(tmp.first_cord == "BA" && tmp.second_cord == 1);
+  }
+  {
+    CPos tmp("ZZZ1");
+    tmp.incrementFirstCord(2);
+    assert(tmp.first_cord == "AAAB" && tmp.second_cord == 1);
+  }
+  {
+    std::string tmp = "$AA$11";
+    assert(getMovedPosition(tmp, 25, 10) == "$AZ$21");
+    assert(getMovedPosition(tmp, 26, 10) == "$BA$21");
+  }
+  {
+    std::string tmp = "AA$11";
+    assert(getMovedPosition(tmp, 25, 10) == "AZ$21");
+    assert(getMovedPosition(tmp, 26, 10) == "BA$21");
+  }
+  {
+    std::string tmp = "$AA11";
+    assert(getMovedPosition(tmp, 25, 10) == "$AZ21");
+    assert(getMovedPosition(tmp, 26, 10) == "$BA21");
+  }
+  {
+    std::string tmp = "AA11";
+    assert(getMovedPosition(tmp, 25, 10) == "AZ21");
+    assert(getMovedPosition(tmp, 26, 10) == "BA21");
+  }
 
   CSpreadsheet tmp;
   CPos pos("A0");
@@ -1150,7 +1277,6 @@ int main ()
   assert ( valueMatch ( x0 . getValue ( CPos ( "B6" ) ), CValue ( 11250.0 ) ) );
   x1 = x0;
   assert ( valueMatch ( x0 . getValue ( CPos ( "B1" ) ), CValue ( 627.0 ) ) );
-  std::cout << x1 . getValue ( CPos ( "B1" ) ) << std::endl;
   assert ( valueMatch ( x1 . getValue ( CPos ( "B1" ) ), CValue ( 627.0 ) ) );
   assert ( x0 . setCell ( CPos ( "A2" ), "100" ) );
   assert ( x1 . setCell ( CPos ( "A2" ), "=A3+A5+A4" ) );
@@ -1160,7 +1286,6 @@ int main ()
   assert ( valueMatch ( x0 . getValue ( CPos ( "B4" ) ), CValue ( 12544.0 ) ) );
   assert ( valueMatch ( x0 . getValue ( CPos ( "B5" ) ), CValue ( 19458.0 ) ) );
   assert ( valueMatch ( x0 . getValue ( CPos ( "B6" ) ), CValue ( 38916.0 ) ) );
-  std::cout << x1 . getValue ( CPos ( "B1" ) ) << std::endl;
   assert ( valueMatch ( x1 . getValue ( CPos ( "B1" ) ), CValue ( 3612.0 ) ) );
   assert ( valueMatch ( x1 . getValue ( CPos ( "B2" ) ), CValue ( -204.0 ) ) );
   assert ( valueMatch ( x1 . getValue ( CPos ( "B3" ) ), CValue ( 4096.0 ) ) );
@@ -1210,8 +1335,8 @@ int main ()
   assert ( x0 . setCell ( CPos ( "F11" ), "=$D0+5" ) );
   assert ( x0 . setCell ( CPos ( "F12" ), "=D$0+5" ) );
   assert ( x0 . setCell ( CPos ( "F13" ), "=$D$0+5" ) );
-  /*
   x0 . copyRect ( CPos ( "G11" ), CPos ( "F10" ), 1, 4 );
+  /*
   assert ( valueMatch ( x0 . getValue ( CPos ( "F10" ) ), CValue ( 15.0 ) ) );
   assert ( valueMatch ( x0 . getValue ( CPos ( "F11" ) ), CValue ( 15.0 ) ) );
   assert ( valueMatch ( x0 . getValue ( CPos ( "F12" ) ), CValue ( 15.0 ) ) );
