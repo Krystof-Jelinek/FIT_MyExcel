@@ -271,10 +271,10 @@ class CAst{
 
 class CCell{
   private:
-    std::string expresion;
     CAst eval_tree;
     bool already_parsed;
   public:
+    std::string expresion;
     CPos position;
     std::shared_ptr<std::map<CPos, CCell>> table_ptr;
     CCell(std::shared_ptr<std::map<CPos, CCell>> in);
@@ -304,7 +304,6 @@ class CValNode : public CNode{
     CValue value;
 };
 
-//TODO this will need changes on how it inputs reference
 class CReference : public CNode{
   public:
   CReference(const std::string & in_pos, std::shared_ptr<std::map<CPos, CCell>> in_ptr){
@@ -318,7 +317,11 @@ class CReference : public CNode{
   }
   
   virtual CValue evaluate() override{
-    return table_ptr->at(position).getValue();
+    if(table_ptr->find(position) != table_ptr->end()){
+      return table_ptr->at(position).getValue();
+    }
+    CValue tmp;
+    return tmp;
   }
 
   private:
@@ -937,12 +940,79 @@ class CSpreadsheet
         return *this;
     }
 
-    bool load(std::istream & is);
-    bool save(std::ostream & os) const;
+    bool load(std::istream & is){
+      std::ostringstream oss;
+      oss << is.rdbuf();
+      std::string content = oss.str();
+
+      table->clear();
+
+      if(content == ""){
+        *this = CSpreadsheet{};
+        return true;
+      }
+
+      std::vector<std::string> parts;
+      std::string delimiter = ";!end!;";
+      size_t start = 0;
+      size_t end = content.find(delimiter);
+      while (end != std::string::npos) {
+          parts.push_back(content.substr(start, end - start));
+          start = end + delimiter.length();
+          end = content.find(delimiter, start);
+      }
+
+      for(std::string & part : parts){
+        size_t pos = part.find(";!pos!;");
+        if (pos == std::string::npos){
+          std::cout << "TADY" << std::endl;
+          return false;
+        }
+        std::string part_before = part.substr(0, pos);
+        std::string part_after = part.substr(pos + 7);
+        try{
+          CPos position(part_before);
+          this->setCell(position, part_after);
+        }catch(std::invalid_argument & e){
+          return false;
+        }
+      }
+      return true;
+    }
+
+
+    bool save(std::ostream & os) const{
+      for(auto itr = table->begin(); itr != table->end(); itr++){
+        //write the position
+        os << itr->second.position.first_cord << itr->second.position.second_cord;
+        os << ";!pos!;";
+        os << itr->second.expresion;
+        os << ";!end!;";
+        if(!os){
+          return false;
+        }
+      }
+      return true;
+    }
+
     bool setCell(CPos pos, std::string contents){
       //TODO nejaka kontrola jestli contents je validni
+      //TODO this could use some optimization -- i can use the parser and store valid AST into the cell so its doesnt need to be parsed again next time
+      if(contents[0] == '='){
+        CMyBuilder my_builder;
+        //this fails when i dont set the pointer and i dont know why at all
+        my_builder.setTablePtr(table);
+        try{
+          parseExpression(contents, my_builder);
+        }catch(std::invalid_argument & e){
+          //this means the things inside contents wasnt parasble therefore wrong input
+          std::cout << "toto nebyl teda hezký vstup" << std::endl;
+          return false;
+        }
+      }
+
       if(table->find(pos) != table->end()){
-          return table->at(pos).setValue(contents);
+        return table->at(pos).setValue(contents);
       }
       else{
           bool res;
@@ -963,6 +1033,7 @@ class CSpreadsheet
         CValue tmp;
         return tmp;
     }
+    
     void copyRect(CPos dst, CPos src, int w = 1, int h = 1);
   
   private:
@@ -1031,9 +1102,10 @@ int main ()
 
   CSpreadsheet tmp;
   CPos pos("A0");
-  tmp.setCell(pos, "=\"COE\"+\"25\"");
+  tmp.setCell(pos, "=\"COE\"+ 10");
+
   std::cout << tmp.getValue(pos) << std::endl;
-  std::cout << tmp.getValue(pos) << std::endl;
+  //std::cout << tmp.getValue(pos) << std::endl;
 
   CSpreadsheet x0, x1;
   std::ostringstream oss;
@@ -1095,7 +1167,6 @@ int main ()
   assert ( valueMatch ( x1 . getValue ( CPos ( "B4" ) ), CValue ( 17424.0 ) ) );
   assert ( valueMatch ( x1 . getValue ( CPos ( "B5" ) ), CValue ( 24928.0 ) ) );
   assert ( valueMatch ( x1 . getValue ( CPos ( "B6" ) ), CValue ( 49856.0 ) ) );
-  /*
   oss . clear ();
   oss . str ( "" );
   assert ( x0 . save ( oss ) );
@@ -1139,6 +1210,7 @@ int main ()
   assert ( x0 . setCell ( CPos ( "F11" ), "=$D0+5" ) );
   assert ( x0 . setCell ( CPos ( "F12" ), "=D$0+5" ) );
   assert ( x0 . setCell ( CPos ( "F13" ), "=$D$0+5" ) );
+  /*
   x0 . copyRect ( CPos ( "G11" ), CPos ( "F10" ), 1, 4 );
   assert ( valueMatch ( x0 . getValue ( CPos ( "F10" ) ), CValue ( 15.0 ) ) );
   assert ( valueMatch ( x0 . getValue ( CPos ( "F11" ) ), CValue ( 15.0 ) ) );
@@ -1176,3 +1248,7 @@ int main ()
   return EXIT_SUCCESS;
 }
 #endif /* __PROGTEST__ */
+
+
+
+//TODO zkusit fake builder na kontrolu setcell ze by mohlo byt rychlejsi ale idk no
