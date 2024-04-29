@@ -306,6 +306,7 @@ class CNode{
   public:
     virtual CValue evaluate() = 0;
     virtual void getReferences(std::set<std::string> & references) = 0;
+    virtual void checkcyclic(std::set<CPos> in_set, bool & flag_valid) = 0;
     virtual ~CNode(){}
 };
 
@@ -328,6 +329,7 @@ class CCell{
     void getReferences(std::set<std::string> & references);
     CCell& operator=(const CCell& other);
     void moveReferences(int x_off, int y_off);
+    void checkcyclic(std::set<CPos> in_set, bool & flag_valid);
 };
 
 class CValNode : public CNode{
@@ -345,6 +347,10 @@ class CValNode : public CNode{
   
   virtual CValue evaluate() override{
     return value;
+  }
+
+  virtual void checkcyclic(std::set<CPos> in_set, bool & flag_valid){
+    return;
   }
 
   virtual void getReferences(std::set<std::string> & references){
@@ -380,6 +386,17 @@ class CReference : public CNode{
     references.insert(reference_string);
   }
 
+  virtual void checkcyclic(std::set<CPos> in_set, bool & flag_valid){
+    if(in_set.find(position) != in_set.end()){
+      flag_valid = false;
+      return;
+    }
+    if(table_ptr->find(position) != table_ptr->end()){
+      //in_set.insert(position);
+      table_ptr->at(position).checkcyclic(in_set, flag_valid);
+    }
+  }
+
   private:
     CPos position;
     std::string reference_string;
@@ -400,6 +417,14 @@ class CPlus : public CNode{
   virtual void getReferences(std::set<std::string> & references){
     first_arg->getReferences(references);
     second_arg->getReferences(references);
+  }
+
+  virtual void checkcyclic(std::set<CPos> in_set, bool & flag_valid){
+    if(!flag_valid){
+      return;
+    }
+    first_arg->checkcyclic(in_set, flag_valid);
+    second_arg->checkcyclic(in_set, flag_valid);
   }
 
   private:
@@ -423,6 +448,14 @@ class CMinus : public CNode{
     second_arg->getReferences(references);
   }
 
+  virtual void checkcyclic(std::set<CPos> in_set, bool & flag_valid){
+    if(!flag_valid){
+      return;
+    }
+    first_arg->checkcyclic(in_set, flag_valid);
+    second_arg->checkcyclic(in_set, flag_valid);
+  }
+
   private:
     std::shared_ptr<CNode> first_arg;
     std::shared_ptr<CNode> second_arg;
@@ -442,6 +475,14 @@ class CMul : public CNode{
   virtual void getReferences(std::set<std::string> & references){
     first_arg->getReferences(references);
     second_arg->getReferences(references);
+  }
+
+  virtual void checkcyclic(std::set<CPos> in_set, bool & flag_valid){
+    if(!flag_valid){
+      return;
+    }
+    first_arg->checkcyclic(in_set, flag_valid);
+    second_arg->checkcyclic(in_set, flag_valid);
   }
 
   private:
@@ -465,6 +506,14 @@ class CDiv : public CNode{
     second_arg->getReferences(references);
   }
 
+  virtual void checkcyclic(std::set<CPos> in_set, bool & flag_valid){
+    if(!flag_valid){
+      return;
+    }
+    first_arg->checkcyclic(in_set, flag_valid);
+    second_arg->checkcyclic(in_set, flag_valid);
+  }
+
   private:
     std::shared_ptr<CNode> first_arg;
     std::shared_ptr<CNode> second_arg;
@@ -486,6 +535,14 @@ class CPow : public CNode{
     second_arg->getReferences(references);
   }
 
+  virtual void checkcyclic(std::set<CPos> in_set, bool & flag_valid){
+    if(!flag_valid){
+      return;
+    }
+    first_arg->checkcyclic(in_set, flag_valid);
+    second_arg->checkcyclic(in_set, flag_valid);
+  }
+
   private:
     std::shared_ptr<CNode> first_arg;
     std::shared_ptr<CNode> second_arg;
@@ -503,6 +560,13 @@ class CNeg : public CNode{
 
   virtual void getReferences(std::set<std::string> & references){
     arg->getReferences(references);
+  }
+
+  virtual void checkcyclic(std::set<CPos> in_set, bool & flag_valid){
+    if(!flag_valid){
+      return;
+    }
+    arg->checkcyclic(in_set, flag_valid);
   }
 
   private:
@@ -523,6 +587,14 @@ class CEq : public CNode{
   virtual void getReferences(std::set<std::string> & references){
     first_arg->getReferences(references);
     second_arg->getReferences(references);
+  }
+
+  virtual void checkcyclic(std::set<CPos> in_set, bool & flag_valid){
+    if(!flag_valid){
+      return;
+    }
+    first_arg->checkcyclic(in_set, flag_valid);
+    second_arg->checkcyclic(in_set, flag_valid);
   }
 
   private:
@@ -546,6 +618,14 @@ class CNeq : public CNode{
     second_arg->getReferences(references);
   }
 
+  virtual void checkcyclic(std::set<CPos> in_set, bool & flag_valid){
+    if(!flag_valid){
+      return;
+    }
+    first_arg->checkcyclic(in_set, flag_valid);
+    second_arg->checkcyclic(in_set, flag_valid);
+  }
+
   private:
     std::shared_ptr<CNode> first_arg;
     std::shared_ptr<CNode> second_arg;
@@ -565,6 +645,14 @@ class CLt : public CNode{
   virtual void getReferences(std::set<std::string> & references){
     first_arg->getReferences(references);
     second_arg->getReferences(references);
+  }
+
+  virtual void checkcyclic(std::set<CPos> in_set, bool & flag_valid){
+    if(!flag_valid){
+      return;
+    }
+    first_arg->checkcyclic(in_set, flag_valid);
+    second_arg->checkcyclic(in_set, flag_valid);
   }
 
   private:
@@ -588,6 +676,14 @@ class CLe : public CNode{
     second_arg->getReferences(references);
   }
 
+  virtual void checkcyclic(std::set<CPos> in_set, bool & flag_valid){
+    if(!flag_valid){
+      return;
+    }
+    first_arg->checkcyclic(in_set, flag_valid);
+    second_arg->checkcyclic(in_set, flag_valid);
+  }
+
   private:
     std::shared_ptr<CNode> first_arg;
     std::shared_ptr<CNode> second_arg;
@@ -607,6 +703,14 @@ class CGt : public CNode{
   virtual void getReferences(std::set<std::string> & references){
     first_arg->getReferences(references);
     second_arg->getReferences(references);
+  }
+
+  virtual void checkcyclic(std::set<CPos> in_set, bool & flag_valid){
+    if(!flag_valid){
+      return;
+    }
+    first_arg->checkcyclic(in_set, flag_valid);
+    second_arg->checkcyclic(in_set, flag_valid);
   }
 
   private:
@@ -630,6 +734,14 @@ class CGe : public CNode{
     second_arg->getReferences(references);
   }
 
+  virtual void checkcyclic(std::set<CPos> in_set, bool & flag_valid){
+    if(!flag_valid){
+      return;
+    }
+    first_arg->checkcyclic(in_set, flag_valid);
+    second_arg->checkcyclic(in_set, flag_valid);
+  }
+
   private:
     std::shared_ptr<CNode> first_arg;
     std::shared_ptr<CNode> second_arg;
@@ -637,9 +749,15 @@ class CGe : public CNode{
 
 class CMyBuilder : public CExprBuilder{
   public:
+    CMyBuilder(){}
+    CMyBuilder(bool onlyCyclic){
+      cyclicCheckeronly = onlyCyclic;
+    }
+
     virtual void  opAdd(){
       //first i take out the SECOND argument of the function cuz thats how zasobnik works
       //! this part computes the result
+      if(!cyclicCheckeronly)
       {
         std::shared_ptr<CNode> second = my_stack.top();
         my_stack.pop();
@@ -664,6 +782,7 @@ class CMyBuilder : public CExprBuilder{
     virtual void  opSub(){
       //first i take out the SECOND argument of the function cuz thats how zasobnik works
       //! this part computes the result
+      if(!cyclicCheckeronly)
       {
         std::shared_ptr<CNode> second = my_stack.top();
         my_stack.pop();
@@ -688,6 +807,7 @@ class CMyBuilder : public CExprBuilder{
     virtual void  opMul() {
       //first i take out the SECOND argument of the function cuz thats how zasobnik works
       //! this part computes the result
+      if(!cyclicCheckeronly)
       {
         std::shared_ptr<CNode> second = my_stack.top();
         my_stack.pop();
@@ -712,6 +832,7 @@ class CMyBuilder : public CExprBuilder{
     virtual void  opDiv() {
       //first i take out the SECOND argument of the function cuz thats how zasobnik works
       //! this part computes the result
+      if(!cyclicCheckeronly)
       {
         std::shared_ptr<CNode> second = my_stack.top();
         my_stack.pop();
@@ -736,6 +857,7 @@ class CMyBuilder : public CExprBuilder{
     virtual void  opPow() {
       //first i take out the SECOND argument of the function cuz thats how zasobnik works
       //! this part computes the result
+      if(!cyclicCheckeronly)
       {
         std::shared_ptr<CNode> second = my_stack.top();
         my_stack.pop();
@@ -760,6 +882,7 @@ class CMyBuilder : public CExprBuilder{
     virtual void  opNeg() {
       //first i take out the SECOND argument of the function cuz thats how zasobnik works
       //! this part computes the result
+      if(!cyclicCheckeronly)
       {
         std::shared_ptr<CNode> first = my_stack.top();
         my_stack.pop();
@@ -780,6 +903,7 @@ class CMyBuilder : public CExprBuilder{
     virtual void  opEq() {
       //first i take out the SECOND argument of the function cuz thats how zasobnik works
       //! this part computes the result
+      if(!cyclicCheckeronly)
       {
         std::shared_ptr<CNode> second = my_stack.top();
         my_stack.pop();
@@ -804,6 +928,7 @@ class CMyBuilder : public CExprBuilder{
     virtual void  opNe() {
       //first i take out the SECOND argument of the function cuz thats how zasobnik works
       //! this part computes the result
+      if(!cyclicCheckeronly)
       {
         std::shared_ptr<CNode> second = my_stack.top();
         my_stack.pop();
@@ -828,6 +953,7 @@ class CMyBuilder : public CExprBuilder{
     virtual void  opLt() {
       //first i take out the SECOND argument of the function cuz thats how zasobnik works
       //! this part computes the result
+      if(!cyclicCheckeronly)
       {
         std::shared_ptr<CNode> second = my_stack.top();
         my_stack.pop();
@@ -852,6 +978,7 @@ class CMyBuilder : public CExprBuilder{
     virtual void  opLe() {
       //first i take out the SECOND argument of the function cuz thats how zasobnik works
       //! this part computes the result
+      if(!cyclicCheckeronly)
       {
         std::shared_ptr<CNode> second = my_stack.top();
         my_stack.pop();
@@ -876,6 +1003,7 @@ class CMyBuilder : public CExprBuilder{
     virtual void  opGt() {
       //first i take out the SECOND argument of the function cuz thats how zasobnik works
       //! this part computes the result
+      if(!cyclicCheckeronly)
       {
         std::shared_ptr<CNode> second = my_stack.top();
         my_stack.pop();
@@ -900,6 +1028,7 @@ class CMyBuilder : public CExprBuilder{
     virtual void  opGe() {
       //first i take out the SECOND argument of the function cuz thats how zasobnik works
       //! this part computes the result
+      if(!cyclicCheckeronly)
       {
         std::shared_ptr<CNode> second = my_stack.top();
         my_stack.pop();
@@ -968,6 +1097,7 @@ class CMyBuilder : public CExprBuilder{
     std::shared_ptr<std::map<CPos, CCell>> table_ptr;
     std::stack<std::shared_ptr<CNode>> my_stack;
     std::stack<std::shared_ptr<CNode>> build_stack;
+    bool cyclicCheckeronly = false;
 
     void storeCValue(const CValue & in){
       CValNode tmp(in);
@@ -1032,6 +1162,22 @@ void CCell::getReferences(std::set<std::string> & references){
   }
   eval_tree.root->getReferences(references);
 } 
+
+void CCell::checkcyclic(std::set<CPos> in_set, bool & flag_valid){
+  if(!already_parsed){
+    CMyBuilder my_builder(true);
+    my_builder.setTablePtr(table_ptr);
+    parseExpression(expresion,my_builder);
+    already_parsed = true;
+    eval_tree = my_builder.getTree();
+  }
+  if(in_set.find(position) != in_set.end()){
+    flag_valid = false;
+    return;
+  }
+  in_set.insert(position);
+  eval_tree.root->checkcyclic(in_set,flag_valid);
+}
 
 std::string getMovedPosition(std::string in_pos, int x_move, int y_move);
 
@@ -1142,7 +1288,7 @@ class CSpreadsheet
       //TODO nejaka kontrola jestli contents je validni
       //TODO this could use some optimization -- i can use the parser and store valid AST into the cell so its doesnt need to be parsed again next time
       if(contents[0] == '='){
-        CMyBuilder my_builder;
+        CMyBuilder my_builder(true);
         //this fails when i dont set the pointer and i dont know why at all
         my_builder.setTablePtr(table);
         try{
@@ -1169,9 +1315,15 @@ class CSpreadsheet
           return true;
       }
     }
+    
     CValue getValue(CPos pos){
         if(table->find(pos) != table->end()){
+          std::set<CPos> in_set;
+          bool valid = true;
+          table->at(pos).checkcyclic(in_set, valid);
+          if(valid){
             return table->at(pos).getValue();
+          }
         }
         CValue tmp;
         return tmp;
@@ -1216,9 +1368,6 @@ class CSpreadsheet
         dst.second_cord = dst_original.second_cord;
         dst.changeFirstCord(1);
       }
-
-
-
     }
   
     std::shared_ptr<std::map<CPos, CCell>> getTable(){
@@ -1538,6 +1687,7 @@ int main ()
   assert ( valueMatch ( x0 . getValue ( CPos ( "A8" ) ), CValue() ) );
   assert ( valueMatch ( x0 . getValue ( CPos ( "AAAA9999" ) ), CValue() ) );
   assert ( x0 . setCell ( CPos ( "A8" ), "=$A$1 + 10" ) );
+  std::cout << x0 . getValue ( CPos ( "A8" ) ) << std::endl;
   assert ( valueMatch ( x0 . getValue ( CPos ( "A8" ) ), CValue ( 20.0 ) ) );
   assert ( x0 . setCell ( CPos ( "B1" ), "=A1+A2*A3" ) );
   assert ( x0 . setCell ( CPos ( "B2" ), "= -A1 ^ 2 - A2 / 2   " ) );
@@ -1655,6 +1805,19 @@ int main ()
   assert ( valueMatch ( x0 . getValue ( CPos ( "H12" ) ), CValue ( 25.0 ) ) );
   assert ( valueMatch ( x0 . getValue ( CPos ( "H13" ) ), CValue ( -22.0 ) ) );
   assert ( valueMatch ( x0 . getValue ( CPos ( "H14" ) ), CValue ( -22.0 ) ) );
+
+  CSpreadsheet x2;
+  assert ( x2 . setCell ( CPos ( "A1" ), "10" ) );
+  assert ( x2 . setCell ( CPos ( "A2" ), "20.5" ) );
+  assert ( x2 . setCell ( CPos ( "A3" ), "=A4 + A6 + 20 * 60 - 10" ) );
+  assert ( x2 . setCell ( CPos ( "A4" ), "=A6 + A6 / 5" ) );
+  assert ( x2 . setCell ( CPos ( "A6" ), "=A3 + A3" ) );
+
+
+  assert ( valueMatch ( x2 . getValue ( CPos ( "A1" ) ), CValue ( 10.0 ) ) );
+  assert ( valueMatch ( x2 . getValue ( CPos ( "A3" ) ), CValue ( ) ) );
+
+
   /*
   */
   return EXIT_SUCCESS;
