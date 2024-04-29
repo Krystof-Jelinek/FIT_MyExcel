@@ -254,28 +254,44 @@ class CPos
       return *this;
     }
 
-    void incrementSecondCord(int i){
+    void changeSecondCord(int i){
       second_cord = second_cord + i;
+      if(second_cord < 0){
+        throw std::invalid_argument("Invalid CPos second coordinate");
+      }
     }
-    void incrementFirstCord(int i){
-      // Convert first_cord to uppercase for consistency
+    void changeFirstCord(int i){
       std::string uppercaseFirstCord = first_cord;
 
       // Iterate through each character of the string in reverse order
-      for(;i > 0;i--){
-        for (int j = uppercaseFirstCord.size() - 1; j >= 0; --j) {
-            // If the character is 'Z', change it to 'A' and continue iterating to the previous character
-            if (uppercaseFirstCord[j] == 'Z') {
-                uppercaseFirstCord[j] = 'A';
-            } else { // If the character is not 'Z', increment it and break the loop
-                ++uppercaseFirstCord[j];
-                break;
-            }
-            // If we reach the beginning of the string and it's 'Z', add 'A' at the beginning
-            if (j == 0 && uppercaseFirstCord[j] == 'A') {
-                uppercaseFirstCord = 'A' + uppercaseFirstCord;
-            }
-        }
+      for (; i != 0; i += (i > 0) ? -1 : 1) {
+          for (int j = uppercaseFirstCord.size() - 1; j >= 0; --j) {
+              if (i > 0) {
+                  // If the character is 'Z', change it to 'A' and continue iterating to the previous character
+                  if (uppercaseFirstCord[j] == 'Z') {
+                      uppercaseFirstCord[j] = 'A';
+                  } else { // If the character is not 'Z', increment it and break the loop
+                      ++uppercaseFirstCord[j];
+                      break;
+                  }
+                  // If we reach the beginning of the string and it's 'Z', add 'A' at the beginning
+                  if (j == 0 && uppercaseFirstCord[j] == 'A') {
+                      uppercaseFirstCord = 'A' + uppercaseFirstCord;
+                  }
+              } else { // Decrementing
+                  // If the character is 'A', change it to 'Z' and continue iterating to the previous character
+                  if (uppercaseFirstCord[j] == 'A') {
+                      uppercaseFirstCord[j] = 'Z';
+                  } else { // If the character is not 'A', decrement it and break the loop
+                      --uppercaseFirstCord[j];
+                      break;
+                  }
+                  // If we reach the beginning of the string, remove the first character ('A')
+                  if (j == 0 && uppercaseFirstCord[j] == 'Z') {
+                      uppercaseFirstCord = uppercaseFirstCord.substr(1);
+                  }
+              }
+          }
       }
       first_cord = uppercaseFirstCord;
     }
@@ -289,6 +305,7 @@ class CPos
 class CNode{
   public:
     virtual CValue evaluate() = 0;
+    virtual void getReferences(std::set<std::string> & references) = 0;
     virtual ~CNode(){}
 };
 
@@ -300,7 +317,7 @@ class CAst{
 class CCell{
   private:
     CAst eval_tree;
-    bool already_parsed;
+    bool already_parsed = false;
   public:
     std::string expresion;
     CPos position;
@@ -308,7 +325,9 @@ class CCell{
     CCell(std::shared_ptr<std::map<CPos, CCell>> in);
     CValue getValue();
     bool setValue(const std::string & input);
+    void getReferences(std::set<std::string> & references);
     CCell& operator=(const CCell& other);
+    void moveReferences(int x_off, int y_off);
 };
 
 class CValNode : public CNode{
@@ -328,6 +347,10 @@ class CValNode : public CNode{
     return value;
   }
 
+  virtual void getReferences(std::set<std::string> & references){
+    return;
+  }
+
   private:
     CValue value;
 };
@@ -336,6 +359,7 @@ class CReference : public CNode{
   public:
   CReference(const std::string & in_pos, std::shared_ptr<std::map<CPos, CCell>> in_ptr){
     std::string str = in_pos;
+    reference_string = in_pos;
     str.erase(std::remove_if(str.begin(), str.end(), [](char c) {
         return c == '$';
     }), str.end());
@@ -352,8 +376,13 @@ class CReference : public CNode{
     return tmp;
   }
 
+  virtual void getReferences(std::set<std::string> & references){
+    references.insert(reference_string);
+  }
+
   private:
     CPos position;
+    std::string reference_string;
     std::shared_ptr<std::map<CPos, CCell>> table_ptr;
 };
 
@@ -366,6 +395,11 @@ class CPlus : public CNode{
 
   virtual CValue evaluate() override{
     return first_arg->evaluate() + second_arg->evaluate();
+  }
+
+  virtual void getReferences(std::set<std::string> & references){
+    first_arg->getReferences(references);
+    second_arg->getReferences(references);
   }
 
   private:
@@ -384,6 +418,11 @@ class CMinus : public CNode{
     return first_arg->evaluate() - second_arg->evaluate();
   }
 
+  virtual void getReferences(std::set<std::string> & references){
+    first_arg->getReferences(references);
+    second_arg->getReferences(references);
+  }
+
   private:
     std::shared_ptr<CNode> first_arg;
     std::shared_ptr<CNode> second_arg;
@@ -398,6 +437,11 @@ class CMul : public CNode{
 
   virtual CValue evaluate() override{
     return first_arg->evaluate() * second_arg->evaluate();
+  }
+
+  virtual void getReferences(std::set<std::string> & references){
+    first_arg->getReferences(references);
+    second_arg->getReferences(references);
   }
 
   private:
@@ -416,6 +460,11 @@ class CDiv : public CNode{
     return first_arg->evaluate() / second_arg->evaluate();
   }
 
+  virtual void getReferences(std::set<std::string> & references){
+    first_arg->getReferences(references);
+    second_arg->getReferences(references);
+  }
+
   private:
     std::shared_ptr<CNode> first_arg;
     std::shared_ptr<CNode> second_arg;
@@ -430,6 +479,11 @@ class CPow : public CNode{
 
   virtual CValue evaluate() override{
     return my_pow(first_arg->evaluate(), second_arg->evaluate());
+  }
+
+  virtual void getReferences(std::set<std::string> & references){
+    first_arg->getReferences(references);
+    second_arg->getReferences(references);
   }
 
   private:
@@ -447,6 +501,10 @@ class CNeg : public CNode{
     return my_neg(arg->evaluate());
   }
 
+  virtual void getReferences(std::set<std::string> & references){
+    arg->getReferences(references);
+  }
+
   private:
     std::shared_ptr<CNode> arg;
 };
@@ -460,6 +518,11 @@ class CEq : public CNode{
 
   virtual CValue evaluate() override{
     return first_arg->evaluate() == second_arg->evaluate();
+  }
+
+  virtual void getReferences(std::set<std::string> & references){
+    first_arg->getReferences(references);
+    second_arg->getReferences(references);
   }
 
   private:
@@ -478,6 +541,11 @@ class CNeq : public CNode{
     return first_arg->evaluate() != second_arg->evaluate();
   }
 
+  virtual void getReferences(std::set<std::string> & references){
+    first_arg->getReferences(references);
+    second_arg->getReferences(references);
+  }
+
   private:
     std::shared_ptr<CNode> first_arg;
     std::shared_ptr<CNode> second_arg;
@@ -492,6 +560,11 @@ class CLt : public CNode{
 
   virtual CValue evaluate() override{
     return first_arg->evaluate() < second_arg->evaluate();
+  }
+
+  virtual void getReferences(std::set<std::string> & references){
+    first_arg->getReferences(references);
+    second_arg->getReferences(references);
   }
 
   private:
@@ -510,6 +583,11 @@ class CLe : public CNode{
     return first_arg->evaluate() <= second_arg->evaluate();
   }
 
+  virtual void getReferences(std::set<std::string> & references){
+    first_arg->getReferences(references);
+    second_arg->getReferences(references);
+  }
+
   private:
     std::shared_ptr<CNode> first_arg;
     std::shared_ptr<CNode> second_arg;
@@ -526,6 +604,11 @@ class CGt : public CNode{
     return first_arg->evaluate() > second_arg->evaluate();
   }
 
+  virtual void getReferences(std::set<std::string> & references){
+    first_arg->getReferences(references);
+    second_arg->getReferences(references);
+  }
+
   private:
     std::shared_ptr<CNode> first_arg;
     std::shared_ptr<CNode> second_arg;
@@ -540,6 +623,11 @@ class CGe : public CNode{
 
   virtual CValue evaluate() override{
     return first_arg->evaluate() >= second_arg->evaluate();
+  }
+
+  virtual void getReferences(std::set<std::string> & references){
+    first_arg->getReferences(references);
+    second_arg->getReferences(references);
   }
 
   private:
@@ -938,12 +1026,42 @@ CCell& CCell::operator=(const CCell& other)
         return *this;
     }
 
+void CCell::getReferences(std::set<std::string> & references){
+  if(!already_parsed){
+    getValue();
+  }
+  eval_tree.root->getReferences(references);
+} 
+
+std::string getMovedPosition(std::string in_pos, int x_move, int y_move);
+
+void CCell::moveReferences(int x_off, int y_off){
+  std::set<std::string> refs;
+  getReferences(refs);
+  int im_at = 0;
+  while(im_at <= int(expresion.size()-1)){
+    for(auto str : refs){
+      if(expresion.substr(im_at, str.size()) == str){
+        std::string new_ref = getMovedPosition(str, x_off, y_off);
+        expresion.erase(im_at, im_at + str.size()-1);
+        expresion.insert(im_at, new_ref);
+        im_at = im_at + new_ref.size();
+      }
+    }
+    im_at++;
+  }
+  already_parsed = false;
+}
+
+std::pair<int, int> countOffset(CPos dst, CPos src);
+
 class CSpreadsheet
 {
   public:
     static unsigned capabilities()
     {
-      return SPREADSHEET_CYCLIC_DEPS | SPREADSHEET_FUNCTIONS | SPREADSHEET_FILE_IO | SPREADSHEET_SPEED | SPREADSHEET_PARSER;
+      return SPREADSHEET_CYCLIC_DEPS;
+      //return SPREADSHEET_CYCLIC_DEPS | SPREADSHEET_FUNCTIONS | SPREADSHEET_FILE_IO | SPREADSHEET_SPEED | SPREADSHEET_PARSER;
     }
 
     CSpreadsheet(){
@@ -1058,25 +1176,93 @@ class CSpreadsheet
         CValue tmp;
         return tmp;
     }
-    
+
     void copyRect(CPos dst, CPos src, int w = 1, int h = 1){
-      std::vector<CCell> copied;
+      std::map<CPos,CCell> copied;
+      std::pair<int,int> offset = countOffset(dst,src);
       CPos src_original = src;
-      for(int i = w; i > 0; i--){
-        for(int j = h; j > 0; j--){
+      for(int i = 0; i < w; i++){
+        for(int j = 0; j < h; j++){
+          CPos new_pos = dst;
+          new_pos.changeFirstCord(i);
+          new_pos.changeSecondCord(j);
           if(table->find(src) != table->end()){
-            copied.push_back(table->at(src));
+            CCell new_cell = table->at(src);
+            new_cell.position = new_pos;
+            new_cell.table_ptr = table;
+            new_cell.moveReferences(offset.first, offset.second);
+            copied.insert({new_pos,new_cell});
           }
-          src.incrementSecondCord(1);
+          src.changeSecondCord(1);
         }
         src.second_cord = src_original.second_cord;
-        src.incrementFirstCord(1);
+        src.changeFirstCord(1);
       }
+
+      CPos dst_original = dst;
+      for(int i = 0; i < w; i++){
+        for(int j = 0; j < h; j++){
+          if(copied.find(dst) != copied.end()){
+            CCell insert_cell = copied.at(dst);
+            table->insert_or_assign(dst, insert_cell);
+            //cuz copy constructor doesnt copy the pointer
+            table->at(dst).table_ptr = table;
+          }
+          else{
+            table->erase(dst);
+          }
+          dst.changeSecondCord(1);
+        }
+        dst.second_cord = dst_original.second_cord;
+        dst.changeFirstCord(1);
+      }
+
+
+
     }
   
+    std::shared_ptr<std::map<CPos, CCell>> getTable(){
+      return table;
+    }
+
   private:
     std::shared_ptr<std::map<CPos, CCell>> table;
 };
+
+std::pair<int, int> countOffset(CPos dst, CPos src){
+  int colofset = 0;
+  int rowofset = 0;
+
+  rowofset = dst.second_cord - src.second_cord;
+
+  if(dst.first_cord.size() == src.first_cord.size()){
+    if(dst.first_cord > src.first_cord){
+      while(src.first_cord != dst.first_cord){
+        src.changeFirstCord(1);
+        colofset++;
+      }
+    }
+    else{
+      while(src.first_cord != dst.first_cord){
+        dst.changeFirstCord(1);
+        colofset--;
+      }
+    }
+  }
+  if(dst.first_cord.size() > src.first_cord.size()){
+    while(src.first_cord != dst.first_cord){
+      src.changeFirstCord(1);
+      colofset++;
+    }
+  }
+  else{
+    while(src.first_cord != dst.first_cord){
+        dst.changeFirstCord(1);
+        colofset--;
+      }
+  }
+  return std::pair<int,int>(colofset,rowofset);
+}
 
 int countOccurrences(const std::string& str, char target) {
     int count = 0;
@@ -1108,8 +1294,12 @@ std::string getMovedPosition(std::string in_pos, int x_move, int y_move){
     }), in_pos.end());
 
   CPos tmp_pos(in_pos);
-  tmp_pos.incrementFirstCord(x_move);
-  tmp_pos.incrementSecondCord(y_move);
+  if(!first_dolar){
+    tmp_pos.changeFirstCord(x_move);
+  }
+  if(!second_dolar){
+    tmp_pos.changeSecondCord(y_move);
+  }
   std::string res;
   if(first_dolar){
     res += '$';
@@ -1184,47 +1374,140 @@ int main ()
   {
     CPos tmp("aA158");
     assert(tmp.first_cord == "AA" && tmp.second_cord == 158);
-    tmp.incrementFirstCord(1);
+    tmp.changeFirstCord(1);
     assert(tmp.first_cord == "AB" && tmp.second_cord == 158);
-    tmp.incrementSecondCord(10);
+    tmp.changeSecondCord(10);
     assert(tmp.first_cord == "AB" && tmp.second_cord == 168);
   }
   {
     CPos tmp("Y1");
     assert(tmp.first_cord == "Y" && tmp.second_cord == 1);
-    tmp.incrementFirstCord(1);
+    tmp.changeFirstCord(1);
     assert(tmp.first_cord == "Z" && tmp.second_cord == 1);
-    tmp.incrementFirstCord(1);
+    tmp.changeFirstCord(1);
     assert(tmp.first_cord == "AA" && tmp.second_cord == 1);
-    tmp.incrementFirstCord(25);
+    tmp.changeFirstCord(25);
     assert(tmp.first_cord == "AZ" && tmp.second_cord == 1);
-    tmp.incrementFirstCord(1);
+    tmp.changeFirstCord(1);
     assert(tmp.first_cord == "BA" && tmp.second_cord == 1);
   }
   {
     CPos tmp("ZZZ1");
-    tmp.incrementFirstCord(2);
+    tmp.changeFirstCord(2);
     assert(tmp.first_cord == "AAAB" && tmp.second_cord == 1);
   }
   {
+    CPos tmp("AA1");
+    tmp.changeFirstCord(-1);
+    tmp.changeSecondCord(-1);
+    assert(tmp.first_cord == "Z" && tmp.second_cord == 0);
+  }
+  {
+    CPos tmp("B1");
+    tmp.changeFirstCord(-1);
+    tmp.changeSecondCord(-1);
+    assert(tmp.first_cord == "A" && tmp.second_cord == 0);
+  }
+  {
+    CPos src("B1");
+    CPos dst("B2");
+    std::pair<int, int> expected = std::make_pair(0, 1);
+    std::pair<int, int> result = countOffset(dst, src);
+    assert(expected.first == result.first && expected.second == result.second);
+  }
+  {
+    CPos src("B1");
+    CPos dst("B20");
+    std::pair<int, int> expected = std::make_pair(0, 19);
+    std::pair<int, int> result = countOffset(dst, src);
+    assert(expected.first == result.first && expected.second == result.second);
+  }
+  {
+    CPos src("B10");
+    CPos dst("B2");
+    std::pair<int, int> expected = std::make_pair(0, -8);
+    std::pair<int, int> result = countOffset(dst, src);
+    assert(expected.first == result.first && expected.second == result.second);
+  }
+  {
+    CPos src("A10");
+    CPos dst("Z2");
+    std::pair<int, int> expected = std::make_pair(25, -8);
+    std::pair<int, int> result = countOffset(dst, src);
+    assert(expected.first == result.first && expected.second == result.second);
+  }
+  {
+    CPos src("A10");
+    CPos dst("AA2");
+    std::pair<int, int> expected = std::make_pair(26, -8);
+    std::pair<int, int> result = countOffset(dst, src);
+    assert(expected.first == result.first && expected.second == result.second);
+  }
+  {
+    CPos src("AA10");
+    CPos dst("A2");
+    std::pair<int, int> expected = std::make_pair(-26, -8);
+    std::pair<int, int> result = countOffset(dst, src);
+    assert(expected.first == result.first && expected.second == result.second);
+  }
+  {
+    CPos src("Z10");
+    CPos dst("A2");
+    std::pair<int, int> expected = std::make_pair(-25, -8);
+    std::pair<int, int> result = countOffset(dst, src);
+    assert(expected.first == result.first && expected.second == result.second);
+  }
+  {
+    CPos tmp("AAAA1");
+    tmp.changeFirstCord(-1);
+    tmp.changeSecondCord(-1);
+    assert(tmp.first_cord == "ZZZ" && tmp.second_cord == 0);
+    tmp.changeFirstCord(-1);
+    assert(tmp.first_cord == "ZZY" && tmp.second_cord == 0);
+  }
+  {
     std::string tmp = "$AA$11";
-    assert(getMovedPosition(tmp, 25, 10) == "$AZ$21");
-    assert(getMovedPosition(tmp, 26, 10) == "$BA$21");
+    assert(getMovedPosition(tmp, 25, 10) == "$AA$11");
+    assert(getMovedPosition(tmp, 26, 10) == "$AA$11");
   }
   {
     std::string tmp = "AA$11";
-    assert(getMovedPosition(tmp, 25, 10) == "AZ$21");
-    assert(getMovedPosition(tmp, 26, 10) == "BA$21");
+    assert(getMovedPosition(tmp, 25, 10) == "AZ$11");
+    assert(getMovedPosition(tmp, 26, 10) == "BA$11");
   }
   {
     std::string tmp = "$AA11";
-    assert(getMovedPosition(tmp, 25, 10) == "$AZ21");
-    assert(getMovedPosition(tmp, 26, 10) == "$BA21");
+    assert(getMovedPosition(tmp, 25, 10) == "$AA21");
+    assert(getMovedPosition(tmp, 26, 10) == "$AA21");
   }
   {
     std::string tmp = "AA11";
     assert(getMovedPosition(tmp, 25, 10) == "AZ21");
     assert(getMovedPosition(tmp, 26, 10) == "BA21");
+  }
+  {
+    CSpreadsheet sheet;
+    CCell tmp(sheet.getTable());
+    tmp.expresion = "=A1 + B1";
+    tmp.moveReferences(1,1);
+    assert(tmp.expresion == "=B2 + C2");
+  }
+  {
+    CSpreadsheet sheet;
+    CCell tmp(sheet.getTable());
+    tmp.expresion = "=$A1 + $B$1";
+    tmp.moveReferences(1,1);
+    assert(tmp.expresion == "=$A2 + $B$1");
+    tmp.moveReferences(-1,-1);
+    assert(tmp.expresion == "=$A1 + $B$1");
+    tmp.expresion = "=A$1 + B$1";
+    tmp.moveReferences(26,26);
+    assert(tmp.expresion == "=AA$1 + AB$1");
+    tmp.moveReferences(-26,-26);
+    assert(tmp.expresion == "=A$1 + B$1");
+    tmp.moveReferences(25,25);
+    assert(tmp.expresion == "=Z$1 + AA$1");
+
   }
 
   CSpreadsheet tmp;
@@ -1336,7 +1619,6 @@ int main ()
   assert ( x0 . setCell ( CPos ( "F12" ), "=D$0+5" ) );
   assert ( x0 . setCell ( CPos ( "F13" ), "=$D$0+5" ) );
   x0 . copyRect ( CPos ( "G11" ), CPos ( "F10" ), 1, 4 );
-  /*
   assert ( valueMatch ( x0 . getValue ( CPos ( "F10" ) ), CValue ( 15.0 ) ) );
   assert ( valueMatch ( x0 . getValue ( CPos ( "F11" ) ), CValue ( 15.0 ) ) );
   assert ( valueMatch ( x0 . getValue ( CPos ( "F12" ) ), CValue ( 15.0 ) ) );
@@ -1354,6 +1636,10 @@ int main ()
   assert ( valueMatch ( x0 . getValue ( CPos ( "F13" ) ), CValue ( 15.0 ) ) );
   assert ( valueMatch ( x0 . getValue ( CPos ( "F14" ) ), CValue() ) );
   assert ( valueMatch ( x0 . getValue ( CPos ( "G10" ) ), CValue() ) );
+  oss . clear ();
+  oss . str ( "" );
+  assert ( x0 . save ( oss ) );
+  data = oss . str ();
   assert ( valueMatch ( x0 . getValue ( CPos ( "G11" ) ), CValue ( 75.0 ) ) );
   assert ( valueMatch ( x0 . getValue ( CPos ( "G12" ) ), CValue ( 25.0 ) ) );
   assert ( valueMatch ( x0 . getValue ( CPos ( "G13" ) ), CValue ( 65.0 ) ) );
@@ -1369,11 +1655,10 @@ int main ()
   assert ( valueMatch ( x0 . getValue ( CPos ( "H12" ) ), CValue ( 25.0 ) ) );
   assert ( valueMatch ( x0 . getValue ( CPos ( "H13" ) ), CValue ( -22.0 ) ) );
   assert ( valueMatch ( x0 . getValue ( CPos ( "H14" ) ), CValue ( -22.0 ) ) );
+  /*
   */
   return EXIT_SUCCESS;
 }
 #endif /* __PROGTEST__ */
-
-
 
 //TODO zkusit fake builder na kontrolu setcell ze by mohlo byt rychlejsi ale idk no
