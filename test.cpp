@@ -43,6 +43,7 @@ constexpr unsigned                     SPREADSHEET_SPEED                       =
 constexpr unsigned                     SPREADSHEET_PARSER                      = 0x10;
 #endif /* __PROGTEST__ */
 
+//helper debugging function
 std::ostream& operator<<(std::ostream& os, const CValue& value){
   if(value.index() == 0){
     os << "monostate";
@@ -58,6 +59,8 @@ std::ostream& operator<<(std::ostream& os, const CValue& value){
   }
   throw std::logic_error("CValue << operator fail");
 }
+
+//------------------------------------------OPERATORS---------------------------------------------------------
 
 CValue operator + (const CValue & first, const CValue & second){
   if((first.index() == 0)||(second.index() == 0)){
@@ -221,6 +224,10 @@ CValue my_neg(const CValue & first){
 
 class CCell;
 
+//------------------------------------------CPOS---------------------------------------------------------
+
+
+//Class that represents coordinates of  cells inside sheet
 class CPos
 {
   public:
@@ -228,6 +235,7 @@ class CPos
       first_cord = "";
       second_cord = -1;
     }
+    
     CPos(std::string_view str){
         size_t i = 0;
         second_cord = 0;
@@ -248,6 +256,7 @@ class CPos
             throw std::invalid_argument("Invalid CPos format");
         }
     }
+    
     CPos & operator =(const CPos & in){
       this->first_cord = in.first_cord;
       this->second_cord = in.second_cord;
@@ -260,6 +269,8 @@ class CPos
         throw std::invalid_argument("Invalid CPos second coordinate");
       }
     }
+    
+    // function that can change the first coordinate(letters) in i direction (works for negative i values as well)
     void changeFirstCord(int i){
       std::string uppercaseFirstCord = first_cord;
 
@@ -301,15 +312,22 @@ class CPos
     int second_cord;
 };
 
-//abstract class from which all operations will derive
+//------------------------------------------CNODES---------------------------------------------------------
+
+
+//abstract class from which all operations will derive this class will be the nodes of AST
 class CNode{
   public:
+    //this function evaluates the node it self it will mostly likely evaluate all its arguments(buble down the AST) then use overloaded operators for computing the result
     virtual CValue evaluate() = 0;
+    //this function will return all references of the AST in form of strings
     virtual void getReferences(std::set<std::string> & references) = 0;
+    //this function basically does bfs on the graph to find cyclic dependencies
     virtual void checkcyclic(std::set<CPos> in_set, bool & flag_valid) = 0;
     virtual ~CNode(){}
 };
 
+//this class is a bit redundant serves only for a better code readability
 class CAst{
   public:  
     std::shared_ptr<CNode> root;
@@ -317,17 +335,19 @@ class CAst{
 
 class CCell{
   private:
-    CAst eval_tree;
+    CAst eval_tree; // stores AST for this cell
     bool already_parsed = false;
   public:
     std::string expresion;
     CPos position;
     std::shared_ptr<std::map<CPos, CCell>> table_ptr;
+
     CCell(std::shared_ptr<std::map<CPos, CCell>> in);
     CValue getValue();
     bool setValue(const std::string & input);
     void getReferences(std::set<std::string> & references);
     CCell& operator=(const CCell& other);
+    //this function will shift all references by x and y coordinates x and y both can be negative
     void moveReferences(int x_off, int y_off);
     void checkcyclic(std::set<CPos> in_set, bool & flag_valid);
 };
@@ -375,6 +395,7 @@ class CReference : public CNode{
   }
   
   virtual CValue evaluate() override{
+    //this cells needs to acces the sheet so it can determine the value that its referencing too
     if(table_ptr->find(position) != table_ptr->end()){
       return table_ptr->at(position).getValue();
     }
@@ -382,17 +403,19 @@ class CReference : public CNode{
     return tmp;
   }
 
+  //this is the only class that is adding something to the set other will only be passing it down the AST
   virtual void getReferences(std::set<std::string> & references){
     references.insert(reference_string);
   }
 
   virtual void checkcyclic(std::set<CPos> in_set, bool & flag_valid){
+    //if we found that we are dependant on ourself thats a cyclic dependency
     if(in_set.find(position) != in_set.end()){
       flag_valid = false;
       return;
     }
+    //else we continue the bfs and add ourself as dependency that we cant meet again when searching the graph
     if(table_ptr->find(position) != table_ptr->end()){
-      //in_set.insert(position);
       table_ptr->at(position).checkcyclic(in_set, flag_valid);
     }
   }
@@ -747,9 +770,15 @@ class CGe : public CNode{
     std::shared_ptr<CNode> second_arg;
 };
 
+//------------------------------------------BUILDER---------------------------------------------------------
+
+
 class CMyBuilder : public CExprBuilder{
   public:
     CMyBuilder(){}
+
+    //this servers a purpos of not computing the result, if this flag is set it wont try to create result it will only create
+    // the AST so it can be searched in for dependencies which will then be check for cycle
     CMyBuilder(bool onlyCyclic){
       cyclicCheckeronly = onlyCyclic;
     }
@@ -1056,7 +1085,6 @@ class CMyBuilder : public CExprBuilder{
       std::shared_ptr<CNode> in = std::make_shared<CValNode>(tmp);
       my_stack.push(in);
       build_stack.push(in);
-
     }
     
     virtual void  valString(std::string val) {
@@ -1076,6 +1104,8 @@ class CMyBuilder : public CExprBuilder{
     virtual void  valRange(std::string val) {}
     virtual void  funcCall(std::string fnName, int paramCount) {}
 
+    //here we can neatly just evaluate the root of the tree which is basically the last operation so in order to make the result it has to evaluate all
+    // the before operations therefore creating the correct result
     CValue getResult(){
       CValue tmp = my_stack.top()->evaluate();
       tree.root = build_stack.top();
@@ -1105,6 +1135,7 @@ class CMyBuilder : public CExprBuilder{
     }
 };
 
+//helper operators for testing the CPos class
 bool operator == (const CPos & first, const CPos & second){
   return ((first.first_cord == second.first_cord) && (first.second_cord == second.second_cord));
 }
@@ -1120,10 +1151,15 @@ bool operator < (const CPos & first, const CPos & second){
   return first.first_cord < second.first_cord;
 }
 
+//------------------------------------------CCELL IMPL---------------------------------------------------------
+
+
 CValue CCell::getValue(){
+  //no need to parse the whole expresion when we already have the AST for it
   if(already_parsed){
     return eval_tree.root->evaluate();
   }
+  //else we create the tree and set it up for next evaluation
   CMyBuilder my_builder;
   my_builder.setTablePtr(table_ptr);
   parseExpression(expresion,my_builder);
@@ -1133,14 +1169,13 @@ CValue CCell::getValue(){
 }
 
 bool CCell::setValue(const std::string & input){
-  //TODO osetrit ze je spravny vstup
   expresion = input;
   already_parsed = false;
   return true;
 }
 
 CCell::CCell(std::shared_ptr<std::map<CPos, CCell>> in){
-    table_ptr = in;
+  table_ptr = in;
 }
 
 CCell& CCell::operator=(const CCell& other)
@@ -1150,6 +1185,7 @@ CCell& CCell::operator=(const CCell& other)
           this->position = other.position;
           this->expresion = other.expresion;
           this->eval_tree = CAst{};
+          //these are set to null so we can correctly create a deep copy and it wont be refering into the other table
           this->already_parsed = false;
           this->table_ptr = nullptr;
         }
@@ -1157,6 +1193,7 @@ CCell& CCell::operator=(const CCell& other)
     }
 
 void CCell::getReferences(std::set<std::string> & references){
+  //we cant get references if we dont have the AST so in that case we must create the AST
   if(!already_parsed){
     getValue();
   }
@@ -1164,6 +1201,7 @@ void CCell::getReferences(std::set<std::string> & references){
 } 
 
 void CCell::checkcyclic(std::set<CPos> in_set, bool & flag_valid){
+  //when the AST is not present we need to create it in order to traverse it
   if(!already_parsed){
     CMyBuilder my_builder(true);
     my_builder.setTablePtr(table_ptr);
@@ -1179,8 +1217,10 @@ void CCell::checkcyclic(std::set<CPos> in_set, bool & flag_valid){
   eval_tree.root->checkcyclic(in_set,flag_valid);
 }
 
+//this function will shift in_pos by x and y and return correct new position for example A0 x = 1, y = 5 --> will return B5 
 std::string getMovedPosition(std::string in_pos, int x_move, int y_move);
 
+//this function iterates over all references and shifts them by x and y using the function above
 void CCell::moveReferences(int x_off, int y_off){
   std::set<std::string> refs;
   getReferences(refs);
@@ -1199,7 +1239,11 @@ void CCell::moveReferences(int x_off, int y_off){
   already_parsed = false;
 }
 
+//this function returns the difference in coordinates of dst and src
 std::pair<int, int> countOffset(CPos dst, CPos src);
+
+//------------------------------------------SPREADSHEET---------------------------------------------------------
+
 
 class CSpreadsheet
 {
@@ -1214,6 +1258,7 @@ class CSpreadsheet
       table = std::make_shared<std::map<CPos, CCell>>();
     }
     ~CSpreadsheet(){
+      //need to manualy clear the table otherwise it will create a cyclic dependency with shared_ptrs --> therefore never dealocating the memory
       table->clear();
     }
 
@@ -1221,6 +1266,7 @@ class CSpreadsheet
     {
         if (this != &other) // Check for self-assignment
         {
+            //creating a deep copy since we are working with shared_ptr
             table = std::make_shared<std::map<CPos, CCell>>();
             for(auto itr = other.table->begin(); itr != other.table->end(); itr++){
               CCell tmp(nullptr);
@@ -1232,6 +1278,7 @@ class CSpreadsheet
         return *this;
     }
 
+    //function loads the isteam parsing it by set delimiters and then validating the values that shoudl be set in each cell
     bool load(std::istream & is){
       std::ostringstream oss;
       oss << is.rdbuf();
@@ -1261,6 +1308,7 @@ class CSpreadsheet
         }
         std::string part_before = part.substr(0, pos);
         std::string part_after = part.substr(pos + 7);
+        //using try catch block - if the content is not valid the setCell will throw error then resulting in return false since the input was not valid
         try{
           CPos position(part_before);
           this->setCell(position, part_after);
@@ -1271,9 +1319,11 @@ class CSpreadsheet
       return true;
     }
 
+    //funtion saves the whole content of sheet into osteam
     bool save(std::ostream & os) const{
       for(auto itr = table->begin(); itr != table->end(); itr++){
         os << itr->second.position.first_cord << itr->second.position.second_cord;
+        //using multichar delimiters for simplicity -- i would forbid users to use these two strings inside a value of cell
         os << ";!pos!;";
         os << itr->second.expresion;
         os << ";!end!;";
@@ -1285,11 +1335,9 @@ class CSpreadsheet
     }
 
     bool setCell(CPos pos, std::string contents){
-      //TODO nejaka kontrola jestli contents je validni
-      //TODO this could use some optimization -- i can use the parser and store valid AST into the cell so its doesnt need to be parsed again next time
+      //validate input if its an expresion (all other things are strings -- therefore valid)
       if(contents[0] == '='){
         CMyBuilder my_builder(true);
-        //this fails when i dont set the pointer and i dont know why at all
         my_builder.setTablePtr(table);
         try{
           parseExpression(contents, my_builder);
@@ -1299,10 +1347,11 @@ class CSpreadsheet
           return false;
         }
       }
-
+      // if this cell already exists then only set new value
       if(table->find(pos) != table->end()){
         return table->at(pos).setValue(contents);
       }
+      //otherwise create a new cell
       else{
           bool res;
           CCell tmp(table);
@@ -1317,22 +1366,26 @@ class CSpreadsheet
     }
     
     CValue getValue(CPos pos){
-        if(table->find(pos) != table->end()){
-          std::set<CPos> in_set;
-          bool valid = true;
-          table->at(pos).checkcyclic(in_set, valid);
-          if(valid){
-            return table->at(pos).getValue();
-          }
+      //needs to check if this cell was inicialized and check for cycle dependencies
+      if(table->find(pos) != table->end()){
+        std::set<CPos> in_set;
+        bool valid = true;
+        table->at(pos).checkcyclic(in_set, valid);
+        if(valid){
+          return table->at(pos).getValue();
         }
-        CValue tmp;
-        return tmp;
+      }
+      //if not valid then return CValue()
+      CValue tmp;
+      return tmp;
     }
 
     void copyRect(CPos dst, CPos src, int w = 1, int h = 1){
       std::map<CPos,CCell> copied;
       std::pair<int,int> offset = countOffset(dst,src);
       CPos src_original = src;
+      //iterating over the source rectangle shifting all references and storing it inside a temporary container
+      //needs to be copied cuz the rectangles can be overlaping
       for(int i = 0; i < w; i++){
         for(int j = 0; j < h; j++){
           CPos new_pos = dst;
@@ -1350,7 +1403,7 @@ class CSpreadsheet
         src.second_cord = src_original.second_cord;
         src.changeFirstCord(1);
       }
-
+      //copying the src rectange into its destination
       CPos dst_original = dst;
       for(int i = 0; i < w; i++){
         for(int j = 0; j < h; j++){
@@ -1378,12 +1431,14 @@ class CSpreadsheet
     std::shared_ptr<std::map<CPos, CCell>> table;
 };
 
+//------------------------------------------HELPER FUNCTIONS---------------------------------------------------------
+
 std::pair<int, int> countOffset(CPos dst, CPos src){
   int colofset = 0;
   int rowofset = 0;
 
   rowofset = dst.second_cord - src.second_cord;
-
+  //function simply adds 1 to the smaller coordiante -- its not efficient but efficiency wasnt the main concern here
   if(dst.first_cord.size() == src.first_cord.size()){
     if(dst.first_cord > src.first_cord){
       while(src.first_cord != dst.first_cord){
@@ -1482,6 +1537,10 @@ bool                                   valueMatch                              (
            || ( std::get<double> ( r ) > 0 && std::get<double> ( s ) > 0 );
   return fabs ( std::get<double> ( r ) - std::get<double> ( s ) ) <= 1e8 * DBL_EPSILON * fabs ( std::get<double> ( r ) );
 }
+
+//------------------------------------------ASSERTS---------------------------------------------------------
+
+
 int main ()
 {
   try{
@@ -1818,10 +1877,6 @@ int main ()
   assert ( valueMatch ( x2 . getValue ( CPos ( "A3" ) ), CValue ( ) ) );
 
 
-  /*
-  */
   return EXIT_SUCCESS;
 }
 #endif /* __PROGTEST__ */
-
-//TODO zkusit fake builder na kontrolu setcell ze by mohlo byt rychlejsi ale idk no
